@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stream Relay</title>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg-primary:   #0a0a0f;
+      --bg-secondary: #12121a;
+      --bg-tertiary:  #1a1a26;
+      --bg-input:     #1e1e2e;
+      --border:       #2a2a3a;
+      --border-focus: #7c5cfc;
+      --text-primary: #e8e6f0;
+      --text-muted:   #8888a0;
+      --accent:       #7c5cfc;
+      --accent-glow:  rgba(124, 92, 252, 0.25);
+      --live-red:     #f04848;
+      --success:      #4ade80;
+      --radius:       10px;
+      --mono:         'JetBrains Mono', monospace;
+      --sans:         'Outfit', system-ui, sans-serif;
+    }
+
+    html, body {
+      height: 100%; width: 100%;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: var(--sans);
+      overflow: hidden;
+    }
+
+    /* ─── Top bar ─── */
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 16px;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border);
+      height: 56px;
+      z-index: 10;
+    }
+    .topbar .brand {
+      font-weight: 700;
+      font-size: 1.1rem;
+      letter-spacing: -0.03em;
+      white-space: nowrap;
+      color: var(--accent);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .topbar .brand svg { width: 22px; height: 22px; }
+
+    .search-form {
+      display: flex;
+      flex: 1;
+      max-width: 480px;
+      gap: 0;
+    }
+    .search-form input {
+      flex: 1;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-right: none;
+      border-radius: var(--radius) 0 0 var(--radius);
+      color: var(--text-primary);
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      padding: 8px 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .search-form input:focus { border-color: var(--border-focus); }
+    .search-form input::placeholder { color: var(--text-muted); }
+    .search-form button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      padding: 0 20px;
+      border-radius: 0 var(--radius) var(--radius) 0;
+      font-family: var(--sans);
+      font-weight: 600;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: filter 0.15s;
+    }
+    .search-form button:hover { filter: brightness(1.15); }
+    .search-form button:disabled { opacity: 0.5; cursor: wait; }
+
+    .quality-select {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text-primary);
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      padding: 8px 10px;
+      outline: none;
+      cursor: pointer;
+      min-width: 100px;
+    }
+    .quality-select:focus { border-color: var(--border-focus); }
+
+    .status-badge {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      padding: 4px 10px;
+      border-radius: 20px;
+      white-space: nowrap;
+      display: none;
+    }
+    .status-badge.live {
+      display: inline-flex;
+      background: rgba(240, 72, 72, 0.15);
+      color: var(--live-red);
+      border: 1px solid rgba(240, 72, 72, 0.3);
+      animation: pulse-live 2s ease-in-out infinite;
+    }
+    .status-badge.error {
+      display: inline-flex;
+      background: rgba(240, 72, 72, 0.1);
+      color: #f08080;
+      border: 1px solid rgba(240, 72, 72, 0.2);
+    }
+    @keyframes pulse-live {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+
+    /* ─── Main layout ─── */
+    .main {
+      display: flex;
+      height: calc(100vh - 56px);
+    }
+
+    /* Player area */
+    .player-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: #000;
+      min-width: 0;
+    }
+    .video-wrap {
+      flex: 1;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      background: var(--bg-primary);
+    }
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: #000;
+    }
+
+    /* Placeholder when no stream is loaded */
+    .placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      color: var(--text-muted);
+      text-align: center;
+      pointer-events: none;
+      z-index: 2;
+    }
+    .placeholder svg { width: 64px; height: 64px; opacity: 0.3; }
+    .placeholder p { font-size: 0.95rem; }
+    .placeholder .hint {
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      background: var(--bg-tertiary);
+      padding: 6px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+    }
+
+    /* Stats bar under video */
+    .stats-bar {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 8px 16px;
+      background: var(--bg-secondary);
+      border-top: 1px solid var(--border);
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      min-height: 34px;
+    }
+    .stats-bar .stat-item { display: flex; align-items: center; gap: 5px; }
+    .stats-bar .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); }
+
+    /* ─── Chat panel ─── */
+    .chat-panel {
+      width: 340px;
+      min-width: 280px;
+      display: flex;
+      flex-direction: column;
+      border-left: 1px solid var(--border);
+      background: var(--bg-secondary);
+    }
+    .chat-header {
+      padding: 12px 16px;
+      font-weight: 600;
+      font-size: 0.85rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .chat-header svg { width: 16px; height: 16px; opacity: 0.6; }
+    .chat-body {
+      flex: 1;
+      position: relative;
+      min-height: 0;
+    }
+    .chat-body iframe {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+    .chat-placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      text-align: center;
+      padding: 20px;
+    }
+
+    /* Toggle chat on small screens */
+    .chat-toggle {
+      display: none;
+      position: fixed;
+      bottom: 16px;
+      right: 16px;
+      width: 48px; height: 48px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      cursor: pointer;
+      z-index: 20;
+      box-shadow: 0 4px 20px var(--accent-glow);
+    }
+    .chat-toggle svg { width: 22px; height: 22px; }
+
+    @media (max-width: 768px) {
+      .chat-panel {
+        position: fixed;
+        right: 0; top: 56px; bottom: 0;
+        z-index: 15;
+        transform: translateX(100%);
+        transition: transform 0.3s ease;
+        width: 320px;
+      }
+      .chat-panel.open { transform: translateX(0); }
+      .chat-toggle { display: flex; align-items: center; justify-content: center; }
+    }
+
+    /* Loading spinner */
+    .spinner {
+      width: 32px; height: 32px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      position: absolute;
+      z-index: 3;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner.hidden { display: none; }
+  </style>
+</head>
+<body>
+
+  <!-- ─── Top Bar ─── -->
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      StreamRelay
+    </div>
+
+    <form class="search-form" id="searchForm">
+      <input
+        type="text"
+        id="channelInput"
+        placeholder="twitch channel name…"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <button type="submit" id="goBtn">WATCH</button>
+    </form>
+
+    <select class="quality-select" id="qualitySelect" disabled>
+      <option value="">quality</option>
+    </select>
+
+    <span class="status-badge" id="statusBadge"></span>
+  </header>
+
+  <!-- ─── Main ─── -->
+  <main class="main">
+    <section class="player-area">
+      <div class="video-wrap" id="videoWrap">
+        <div class="placeholder" id="placeholder">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="2" y="3" width="20" height="14" rx="2"/>
+            <polyline points="8 21 16 21"/>
+            <line x1="12" y1="17" x2="12" y2="21"/>
+            <polygon points="10 7.5 10 12.5 14.5 10 10 7.5" fill="currentColor" stroke="none"/>
+          </svg>
+          <p>Enter a Twitch channel to start watching</p>
+          <span class="hint">streamrelay uses your bandwidth, not the server's</span>
+        </div>
+        <div class="spinner hidden" id="spinner"></div>
+        <video id="video" controls autoplay></video>
+      </div>
+
+      <div class="stats-bar" id="statsBar">
+        <span class="stat-item" id="statRes">—</span>
+        <span class="stat-item" id="statBitrate">—</span>
+        <span class="stat-item" id="statBuffer">—</span>
+        <span class="stat-item" id="statLatency">—</span>
+      </div>
+    </section>
+
+    <aside class="chat-panel" id="chatPanel">
+      <div class="chat-header">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+        </svg>
+        Chat
+      </div>
+      <div class="chat-body" id="chatBody">
+        <div class="chat-placeholder" id="chatPlaceholder">
+          Chat will appear once you load a channel
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <button class="chat-toggle" id="chatToggle" aria-label="Toggle chat">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+    </svg>
+  </button>
+
+<script>
+// ─── State ───
+let hls = null;
+let currentChannel = null;
+let allStreams = {};
+let statsInterval = null;
+
+// ─── DOM ───
+const $ = (s) => document.querySelector(s);
+const video        = $('#video');
+const channelInput = $('#channelInput');
+const goBtn        = $('#goBtn');
+const qualitySelect = $('#qualitySelect');
+const statusBadge  = $('#statusBadge');
+const placeholder  = $('#placeholder');
+const spinner      = $('#spinner');
+const chatBody     = $('#chatBody');
+const chatPlaceholder = $('#chatPlaceholder');
+const chatPanel    = $('#chatPanel');
+const chatToggle   = $('#chatToggle');
+
+// ─── API base (same origin) ───
+const API = window.location.origin;
+
+// ─── Search form handler ───
+$('#searchForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const channel = channelInput.value.trim().toLowerCase();
+  if (!channel) return;
+  await loadChannel(channel);
+});
+
+// ─── Chat toggle (mobile) ───
+chatToggle.addEventListener('click', () => {
+  chatPanel.classList.toggle('open');
+});
+
+// ─── Load channel ───
+async function loadChannel(channel) {
+  setStatus('loading');
+  destroyPlayer();
+  goBtn.disabled = true;
+  spinner.classList.remove('hidden');
+  placeholder.style.display = 'none';
+
+  try {
+    const resp = await fetch(`${API}/api/stream?channel=${encodeURIComponent(channel)}`);
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    allStreams = data.streams;
+    currentChannel = data.channel;
+
+    // Populate quality selector
+    populateQualities(allStreams);
+
+    // Default to "best"
+    const defaultQuality = allStreams['best'] ? 'best' : Object.keys(allStreams)[0];
+    qualitySelect.value = defaultQuality;
+    startPlayer(allStreams[defaultQuality]);
+
+    // Load chat
+    loadChat(currentChannel);
+
+    setStatus('live', currentChannel);
+  } catch (err) {
+    console.error(err);
+    setStatus('error', err.message);
+    placeholder.style.display = '';
+    placeholder.querySelector('p').textContent = err.message;
+  } finally {
+    goBtn.disabled = false;
+    spinner.classList.add('hidden');
+  }
+}
+
+// ─── Quality selector ───
+function populateQualities(streams) {
+  qualitySelect.innerHTML = '';
+  qualitySelect.disabled = false;
+
+  // Preferred order
+  const preferred = ['best', '1080p60', '1080p', '720p60', '720p', '480p', '360p', '160p', 'worst', 'audio_only'];
+  const keys = Object.keys(streams);
+  const ordered = preferred.filter(k => keys.includes(k));
+  const rest = keys.filter(k => !ordered.includes(k)).sort();
+
+  [...ordered, ...rest].forEach(key => {
+    const opt = document.createElement('option');
+    opt.value = key;
+    opt.textContent = key;
+    qualitySelect.appendChild(opt);
+  });
+}
+
+qualitySelect.addEventListener('change', () => {
+  const url = allStreams[qualitySelect.value];
+  if (url) startPlayer(url);
+});
+
+// ─── HLS Player ───
+function startPlayer(streamUrl) {
+  destroyPlayer();
+
+  if (Hls.isSupported()) {
+    hls = new Hls({
+      enableWorker: true,
+      lowLatencyMode: true,
+      backBufferLength: 30,
+    });
+
+    // URLs from /api/stream are already wrapped through /api/proxy.
+    // Playlists go through our server (tiny, ~KB).
+    // Segments inside playlists are absolute Twitch CDN URLs →
+    // the browser fetches them directly (all video bandwidth is client-side).
+    hls.loadSource(streamUrl);
+    hls.attachMedia(video);
+
+    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      video.play().catch(() => {});
+    });
+
+    hls.on(Hls.Events.ERROR, (event, data) => {
+      if (data.fatal) {
+        if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+          hls.recoverMediaError();
+        } else {
+          console.error('Fatal HLS error', data);
+          setStatus('error', 'Playback error — try a different quality');
+        }
+      }
+    });
+
+    // Stats
+    startStats();
+  } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+    // Native HLS (Safari)
+    video.src = streamUrl;
+    video.addEventListener('loadedmetadata', () => video.play().catch(() => {}));
+  } else {
+    setStatus('error', 'HLS is not supported in this browser');
+  }
+}
+
+function destroyPlayer() {
+  if (hls) {
+    hls.destroy();
+    hls = null;
+  }
+  video.src = '';
+  stopStats();
+}
+
+// ─── Live stats ───
+function startStats() {
+  stopStats();
+  statsInterval = setInterval(() => {
+    if (!hls) return;
+
+    // Resolution
+    const level = hls.levels?.[hls.currentLevel];
+    if (level) {
+      $('#statRes').textContent = `${level.width}×${level.height}`;
+      const kbps = Math.round((level.bitrate || 0) / 1000);
+      $('#statBitrate').textContent = kbps ? `${kbps} kbps` : '';
+    }
+
+    // Buffer
+    if (video.buffered.length > 0) {
+      const buffered = (video.buffered.end(video.buffered.length - 1) - video.currentTime).toFixed(1);
+      $('#statBuffer').textContent = `buf ${buffered}s`;
+    }
+
+    // Latency (low-latency HLS)
+    if (hls.latency != null && hls.latency > 0) {
+      $('#statLatency').textContent = `lat ${hls.latency.toFixed(1)}s`;
+    }
+  }, 1000);
+}
+
+function stopStats() {
+  if (statsInterval) clearInterval(statsInterval);
+  statsInterval = null;
+  $('#statRes').textContent = '—';
+  $('#statBitrate').textContent = '';
+  $('#statBuffer').textContent = '';
+  $('#statLatency').textContent = '';
+}
+
+// ─── Chat embed ───
+function loadChat(channel) {
+  chatPlaceholder.style.display = 'none';
+  // Remove old iframe if any
+  const oldIframe = chatBody.querySelector('iframe');
+  if (oldIframe) oldIframe.remove();
+
+  // Twitch requires parent= to match the embedding domain exactly.
+  // Cover both localhost and 127.0.0.1 since users might use either.
+  const hostname = window.location.hostname;
+  const parents = new Set([hostname]);
+  if (hostname === 'localhost') parents.add('127.0.0.1');
+  if (hostname === '127.0.0.1') parents.add('localhost');
+
+  const parentParams = [...parents].map(p => `parent=${p}`).join('&');
+  const chatUrl = `https://www.twitch.tv/embed/${channel}/chat?${parentParams}&darkpopout`;
+
+  const iframe = document.createElement('iframe');
+  iframe.src = chatUrl;
+  iframe.setAttribute('height', '100%');
+  iframe.setAttribute('width', '100%');
+  iframe.setAttribute('frameborder', '0');
+  iframe.setAttribute('scrolling', 'yes');
+  iframe.setAttribute('allow', 'autoplay; encrypted-media');
+  iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms');
+  chatBody.appendChild(iframe);
+
+  console.log('Chat embed URL:', chatUrl);
+}
+
+// ─── Status badge ───
+function setStatus(type, text) {
+  statusBadge.className = 'status-badge';
+  if (type === 'live') {
+    statusBadge.classList.add('live');
+    statusBadge.textContent = `● LIVE — ${text}`;
+  } else if (type === 'error') {
+    statusBadge.classList.add('error');
+    statusBadge.textContent = text;
+  } else if (type === 'loading') {
+    statusBadge.style.display = 'none';
+  }
+}
+
+// ─── Keyboard shortcut: focus search on / ───
+document.addEventListener('keydown', (e) => {
+  if (e.key === '/' && document.activeElement !== channelInput) {
+    e.preventDefault();
+    channelInput.focus();
+    channelInput.select();
+  }
+});
+
+// ─── URL hash support: #channel ───
+if (window.location.hash.length > 1) {
+  const ch = window.location.hash.slice(1);
+  channelInput.value = ch;
+  loadChannel(ch);
+}
+</script>
+</body>
+</html>

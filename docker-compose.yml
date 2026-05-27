@@ -1,0 +1,8 @@
+services:
+  streamrelay:
+    image: YOUR_DOCKERHUB_USERNAME/streamrelay:latest
+    ports:
+      - "8000:8000"
+    environment:
+      - ALLOWED_ORIGINS=http://localhost:8000
+    restart: unless-stopped
