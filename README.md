@@ -23,15 +23,7 @@ docker compose up -d
 |---|---|---|
 | `ALLOWED_ORIGINS` | `http://localhost:8000` | Comma-separated CORS origins |
 
-## Twitch Auth (Optional)
 
-For ad-free playback (requires Twitch Turbo), grab your token from the browser console on twitch.tv:
-
-```js
-document.cookie.split("; ").find(i=>i.startsWith("auth-token="))?.split("=")[1]
-```
-
-Set it in `server.py` or pass as an env variable.
 
 ## Deployment
 
