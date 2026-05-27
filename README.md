@@ -5,10 +5,17 @@ Self-hosted Twitch viewer. Server resolves stream URLs via Streamlink — your b
 ## Run
 
 ```bash
-docker compose up -d
+docker build -t streamrelay .
+docker run -d -p 8000:8000 --restart unless-stopped streamrelay
 ```
 
 Open `http://localhost:8000`
+
+Or with compose:
+
+```bash
+docker compose up -d
+```
 
 ## Configuration
 
@@ -16,4 +23,16 @@ Open `http://localhost:8000`
 |---|---|---|
 | `ALLOWED_ORIGINS` | `http://localhost:8000` | Comma-separated CORS origins |
 
-For HTTPS / custom domain, put behind a reverse proxy (Caddy, nginx) and update `ALLOWED_ORIGINS`.
+## Twitch Auth (Optional)
+
+For ad-free playback (requires Twitch Turbo), grab your token from the browser console on twitch.tv:
+
+```js
+document.cookie.split("; ").find(i=>i.startsWith("auth-token="))?.split("=")[1]
+```
+
+Set it in `server.py` or pass as an env variable.
+
+## Deployment
+
+For HTTPS / custom domain, put behind a reverse proxy and update `ALLOWED_ORIGINS`. The Twitch chat iframe requires HTTPS on non-localhost domains.
